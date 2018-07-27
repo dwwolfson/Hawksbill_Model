@@ -1,0 +1,154 @@
+---
+title: "Turtle Model"
+author: "David"
+date: "February 3, 2017"
+output: html_document
+---
+
+
+```{r load_packages, echo=FALSE, warning=FALSE, message=FALSE}
+if (!require(truncnorm)) { install.packages("truncnorm") ; library(truncnorm) }
+```
+
+
+
+```{r pop_functions and set seed}
+# function for surviving and moving onto next stage
+gblaster<-function(p,d){
+  (p^d*(1-p))/(1-p^d)
+}
+# function for surviving and remaining in same stage
+pblaster<-function(p,d){
+  ((1-p^(d-1))/(1-p^d))*p
+}
+
+set.seed(12910)
+```
+
+```{r parameters}
+# Parameters to (potentially) save at the end
+slope<-NA
+hatch.surv<-NA
+juv.surv<-NA
+sex.ratio<-NA
+hatch.prop<-NULL
+young.juv.prop<-NULL
+old.juv.prop<-NULL
+adult.prop<-NULL
+n.hatch<-NULL
+n.young.juv<-NULL
+n.old.juv<-NULL
+yrly.n.adult.f<-NULL
+n.adult.f<-NULL
+n.adult<-NULL
+lambda<-NULL
+pop.adjusted<-NULL
+peas<-NULL
+errorcount=0
+```
+
+```{r the model, warning=FALSE, message=FALSE}
+for(m in 1:10000){
+  remigr<-rtruncnorm(n = 1, a = 2, b = 4, mean = 2.8, sd = 0.3) #truncated normal distribution with limits at 2 and 4
+  ddep.min<-75*remigr-1 #lower for the number of adult females
+  ddep.max<-75*remigr+1 #upper for the number of adult females
+  min=0.001 #lower for slope
+  max=0.08 #upper for slope
+  flag=0 
+  counter=1
+  ###create starting values
+  abund_array<-c(1000,500,120,21)  #try some starting values
+  abund_mat<-matrix(abund_array, nrow = 4,ncol=1)
+  base_abund=abund_mat
+  ##projection matrix
+  g1<-runif(1,0.2,0.6) #an init for hatch survival, this is unnecessary b/c it will vary
+  p2<-pblaster(0.75, 2)
+  g2<-gblaster(0.75, 2)
+  p3.raw<-rbeta(n = 1, shape1 = 70, shape2 = 30)
+  p3<-pblaster(p3.raw, 12)
+  g3<-gblaster(p3.raw, 12)
+  f.raw<-runif(1, 0.73,max = 0.95)
+  f<-750*f.raw/remigr
+  tortrates<-c(0,g1,0,0,0,p2,g2,0,0,0,p3,g3,f,0,0,0.93)
+  tortmat<-matrix(tortrates, nrow=4, ncol=4)
+  base_mat<-tortmat
+  
+  guess<-0.02  #initial value for slope
+  while(flag==0){
+    if (counter==30){
+      errorcount=errorcount+1
+      break
+    }
+    yrly.n.adult.f<-NULL
+    abund_mat=base_abund #reset abundance
+    y=50   #number of years to run population model for
+    for(i in 1:y){  #loop over any number of years
+      tortmat=base_mat
+      M<-(-log(tortmat[2,1]))                 #convert survivorship to instantaneous mortality (M)
+      d<-guess*abund_mat[4,1]                 #mortality due to density-dependence
+      z<-M+d                                  #total mort=natural mort + density-derived mort
+      tortmat[2,1]<-exp(-z)                   #convert back to survivorship and places value back in matrix
+      abund_mat<-tortmat%*%abund_mat          #project population to next year
+      N<-sum(abund_mat)                       #save total population abundance in year i
+      yrly.n.adult.f[i]<-abund_mat[4,1]       #save number of adults females at end of 50th year
+    } #end loop
+    if(yrly.n.adult.f[y]<ddep.min){           
+      max<-guess
+      guess<-(min+max)/2
+      counter<-counter+1
+    } else if(yrly.n.adult.f[y]>ddep.max){
+      min<-guess
+      guess<-(min+max)/2
+      counter<-counter+1
+    } else{
+      hatch.surv[m]<-tortmat[2,1]
+      juv.surv[m]<-p3.raw
+      slope[m]<-guess
+      sex.ratio[m]<-f.raw
+      hatch.prop[m]<-abund_mat[1,1]/N
+      young.juv.prop[m]<-abund_mat[2,1]/N
+      old.juv.prop[m]<-abund_mat[3,1]/N
+      adult.prop[m]<-abund_mat[4,1]/N
+      n.hatch[m]<-abund_mat[1,1] 
+      n.young.juv[m]<-abund_mat[2,1] 
+      n.old.juv[m]<-abund_mat[3,1] 
+      n.adult.f[m]<-abund_mat[4,1]
+      n.adult[m]<-abund_mat[4,1]/f.raw
+      pop.adjusted[m]<-N/f.raw
+      peas[m]<-tortmat[2,1]*0.5625*p3.raw^12*1000
+      flag=1
+      slope[m]<-guess
+    }
+  }
+}
+```
+
+```{r model check}
+errorcount
+```
+
+```{r summary stats}
+summary(peas)
+```
+
+```{r basic histogram}
+#plot of probability of survival from egg-to-adult
+hist(peas, main="PEAS values for 10k runs")
+```
+
+```{r ggplot, warning=FALSE, message=FALSE}
+if (!require(ggplot2)) { install.packages("ggplot2") ; library(ggplot2) }
+a<-data.frame(peas)
+ggplot(a, aes(x=peas))+geom_histogram()+ggtitle("PEAS values for 10k runs")+theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+```{r}
+sessionInfo()
+```
+
+
+
+
+
+
